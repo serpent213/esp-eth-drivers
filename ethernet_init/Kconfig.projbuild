@@ -63,7 +63,7 @@ menu "Ethernet Configuration"
                         KSZ8051, KSZ8061, KSZ8081, KSZ8091
                     Goto https://www.microchip.com for more information about them.
 
-            # TODO: un-hide this option once processing of Matches and Rules is fixed in  IDF Component Manager and so LAN867x component can be conditionally included. 
+            # TODO: un-hide this option once processing of Matches and Rules is fixed in  IDF Component Manager and so LAN867x component can be conditionally included.
             #config ETHERNET_PHY_LAN867X
             #    bool "LAN867x"
             #    depends on !ETHERNET_INTERNAL_SUPPORT
@@ -317,5 +317,23 @@ menu "Ethernet Configuration"
             default ETHERNET_SPI_POLLING1_MS_VAL if ETHERNET_SPI_POLLING1_MS_VAL > 0
             default 0
 
+    endif # ETHERNET_SPI_SUPPORT
+
+    config ETHERNET_VIRT_SUPPORT
+        bool "Virtual Ethernet (for use with QEMU)"
+        default n
+        select ETH_USE_VIRT_ETHERNET
+        help
+            Use virtual network interface(s), primarily for use in emulation environments.
+
+    if ETHERNET_VIRT_SUPPORT
+            config ETHERNET_USE_OPENETH
+                bool "OpenCores Ethernet MAC (EXPERIMENTAL)"
+                help
+                    When this option is enabled, the example is built with support for
+                    OpenCores Ethernet MAC, which allows testing the example in QEMU.
+                    Note that this option is used for internal testing purposes, and
+                    not officially supported. Examples built with this option enabled
+                    will not run on a real ESP32 chip.
     endif # ETHERNET_SPI_SUPPORT
 endmenu

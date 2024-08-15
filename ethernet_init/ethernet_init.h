@@ -16,6 +16,7 @@ typedef enum {
     ETH_DEV_TYPE_UNKNOWN,
     ETH_DEV_TYPE_INTERNAL_ETH,
     ETH_DEV_TYPE_SPI,
+    ETH_DEV_TYPE_VIRT,
 } eth_dev_type_t;
 
 typedef struct {

@@ -4,15 +4,24 @@ This component makes it easier to set up and control Ethernet connections in Esp
 It also allows users to select from various supported Ethernet chips, making development faster.
 
 Supported devices are:
-* IP101
-* RTL8201/SR8201
-* LAN87xx
-* DP83848
-* KSZ80xx
-* SPI Ethernet:
-    * DM9051 Module
-    * KSZ8851SNL Module
-    * W5500 Module
+
+* Internal Ethernet
+  PHYs:
+    * IP101
+    * RTL8201/SR8201
+    * LAN87xx
+    * DP83848
+    * KSZ80xx
+
+* SPI Ethernet
+  Controllers:
+    * DM9051
+    * KSZ8851SNL
+    * W5500
+
+* Virtual Ethernet (for emulation, QEMU)
+  Drivers:
+    * OpenEth
 
 ## API
 

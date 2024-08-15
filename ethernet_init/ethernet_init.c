@@ -5,6 +5,7 @@
  */
 #include <stdio.h>
 #include <unistd.h>
+#include <string.h>
 #include "ethernet_init.h"
 #include "esp_log.h"
 #include "esp_event.h"
@@ -22,15 +23,24 @@
 
 
 #if CONFIG_ETHERNET_SPI_NUMBER
-#define SPI_ETHERNETS_NUM           CONFIG_ETHERNET_SPI_NUMBER
+#define SPI_ETHERNETS_NUM                 CONFIG_ETHERNET_SPI_NUMBER
 #else
-#define SPI_ETHERNETS_NUM           0
+#define CONFIG_ETHERNET_SPI_NUMBER        0
+#define SPI_ETHERNETS_NUM                 0
 #endif
 
 #if CONFIG_ETHERNET_INTERNAL_SUPPORT
-#define INTERNAL_ETHERNETS_NUM      1
+#define INTERNAL_ETHERNETS_NUM            1
 #else
-#define INTERNAL_ETHERNETS_NUM      0
+#define CONFIG_ETHERNET_INTERNAL_SUPPORT  0
+#define INTERNAL_ETHERNETS_NUM            0
+#endif
+
+#if CONFIG_ETHERNET_VIRT_SUPPORT
+#define VIRT_ETHERNETS_NUM                1
+#else
+#define CONFIG_ETHERNET_VIRT_SUPPORT      0
+#define VIRT_ETHERNETS_NUM                0
 #endif
 
 #define INIT_SPI_ETH_MODULE_CONFIG(eth_module_config, num)                                   \
@@ -41,14 +51,6 @@
         eth_module_config[num].phy_reset_gpio = CONFIG_ETHERNET_SPI_PHY_RST ##num## _GPIO;   \
         eth_module_config[num].phy_addr = CONFIG_ETHERNET_SPI_PHY_ADDR ##num;                \
     } while(0)
-
-#if !defined(CONFIG_ETHERNET_INTERNAL_SUPPORT)
-#define CONFIG_ETHERNET_INTERNAL_SUPPORT 0
-#endif
-
-#if !defined(CONFIG_ETHERNET_SPI_NUMBER)
-#define CONFIG_ETHERNET_SPI_NUMBER 0
-#endif
 
 typedef struct {
     uint8_t spi_cs_gpio;
@@ -74,7 +76,7 @@ typedef struct {
 
 static const char *TAG = "ethernet_init";
 static uint8_t eth_cnt_g = 0;
-static eth_device eth_instance_g[CONFIG_ETHERNET_INTERNAL_SUPPORT + CONFIG_ETHERNET_SPI_NUMBER];
+static eth_device eth_instance_g[INTERNAL_ETHERNETS_NUM + SPI_ETHERNETS_NUM + VIRT_ETHERNETS_NUM];
 
 
 static void eth_event_handler(void *arg, esp_event_base_t event_base,
@@ -111,7 +113,7 @@ static void eth_event_handler(void *arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "Ethernet(%s[%d,%d]) Stopped", dev_info.name, pin1, pin2);
         break;
     default:
-        ESP_LOGI(TAG, "Default Event");
+        ESP_LOGI(TAG, "Uncaught Event");
         break;
     }
 }
@@ -121,7 +123,7 @@ static void eth_event_handler(void *arg, esp_event_base_t event_base,
 /**
  * @brief Internal ESP32 Ethernet initialization
  *
- * @param[out] dev_out device information of the ethernet
+ * @param[out] dev_out device information of the ethernet interface
  * @return
  *          - esp_eth_handle_t if init succeeded
  *          - NULL if init failed
@@ -169,22 +171,24 @@ static esp_eth_handle_t eth_init_internal(eth_device *dev_out)
     // Create new PHY instance based on board configuration
 #if CONFIG_ETHERNET_PHY_IP101
     dev_out->phy = esp_eth_phy_new_ip101(&phy_config);
-    sprintf(dev_out->dev_info.name, "IP101");
+    strcpy(dev_out->dev_info.name, "IP101");
 #elif CONFIG_ETHERNET_PHY_RTL8201
     dev_out->phy = esp_eth_phy_new_rtl8201(&phy_config);
-    sprintf(dev_out->dev_info.name, "RTL8201");
+    strcpy(dev_out->dev_info.name, "RTL8201");
 #elif CONFIG_ETHERNET_PHY_LAN87XX
     dev_out->phy = esp_eth_phy_new_lan87xx(&phy_config);
-    sprintf(dev_out->dev_info.name, "LAN87XX");
+    strcpy(dev_out->dev_info.name, "LAN87XX");
 #elif CONFIG_ETHERNET_PHY_DP83848
     dev_out->phy = esp_eth_phy_new_dp83848(&phy_config);
-    sprintf(dev_out->dev_info.name, "DP83848");
+    strcpy(dev_out->dev_info.name, "DP83848");
 #elif CONFIG_ETHERNET_PHY_KSZ80XX
     dev_out->phy = esp_eth_phy_new_ksz80xx(&phy_config);
-    sprintf(dev_out->dev_info.name, "KSZ80XX");
+    strcpy(dev_out->dev_info.name, "KSZ80XX");
 #elif CONFIG_ETHERNET_PHY_LAN867X
     dev_out->phy = esp_eth_phy_new_lan867x(&phy_config);
-    sprintf(dev_out->dev_info.name, "LAN867x");
+    strcpy(dev_out->dev_info.name, "LAN867x");
+#else
+#error "Internal Ethernet enabled in sdkconfig but no chip selected!"
 #endif
 
     // Init Ethernet driver to default and install it
@@ -207,6 +211,7 @@ err:
     return ret;
 }
 #endif // CONFIG_ETHERNET_INTERNAL_SUPPORT
+
 
 #if CONFIG_ETHERNET_SPI_SUPPORT
 /**
@@ -250,7 +255,7 @@ err:
  * @brief Ethernet SPI modules initialization
  *
  * @param[in] spi_eth_module_config specific SPI Ethernet module configuration
- * @param[out] dev device information of the ethernet
+ * @param[out] dev_out device information of the ethernet interface
  * @return
  *          - esp_eth_handle_t if init succeeded
  *          - NULL if init failed
@@ -288,21 +293,23 @@ static esp_eth_handle_t eth_init_spi(spi_eth_module_config_t *spi_eth_module_con
     ksz8851snl_config.poll_period_ms = spi_eth_module_config->poll_period_ms;
     dev_out->mac = esp_eth_mac_new_ksz8851snl(&ksz8851snl_config, &mac_config);
     dev_out->phy = esp_eth_phy_new_ksz8851snl(&phy_config);
-    sprintf(dev_out->dev_info.name, "KSZ8851SNL");
+    strcpy(dev_out->dev_info.name, "KSZ8851SNL");
 #elif CONFIG_ETHERNET_USE_DM9051
     eth_dm9051_config_t dm9051_config = ETH_DM9051_DEFAULT_CONFIG(CONFIG_ETHERNET_SPI_HOST, &spi_devcfg);
     dm9051_config.int_gpio_num = spi_eth_module_config->int_gpio;
     dm9051_config.poll_period_ms = spi_eth_module_config->poll_period_ms;
     dev_out->mac = esp_eth_mac_new_dm9051(&dm9051_config, &mac_config);
     dev_out->phy = esp_eth_phy_new_dm9051(&phy_config);
-    sprintf(dev_out->dev_info.name, "DM9051");
+    strcpy(dev_out->dev_info.name, "DM9051");
 #elif CONFIG_ETHERNET_USE_W5500
     eth_w5500_config_t w5500_config = ETH_W5500_DEFAULT_CONFIG(CONFIG_ETHERNET_SPI_HOST, &spi_devcfg);
     w5500_config.int_gpio_num = spi_eth_module_config->int_gpio;
     w5500_config.poll_period_ms = spi_eth_module_config->poll_period_ms;
     dev_out->mac = esp_eth_mac_new_w5500(&w5500_config, &mac_config);
     dev_out->phy = esp_eth_phy_new_w5500(&phy_config);
-    sprintf(dev_out->dev_info.name, "W5500");
+    strcpy(dev_out->dev_info.name, "W5500");
+#else
+#error "SPI Ethernet enabled in sdkconfig but no chip selected!"
 #endif //CONFIG_ETHERNET_USE_W5500
     // Init Ethernet driver to default and install it
     esp_eth_handle_t eth_handle = NULL;
@@ -331,6 +338,61 @@ err:
 #endif // CONFIG_ETHERNET_SPI_SUPPORT
 
 
+#if CONFIG_ETHERNET_VIRT_SUPPORT
+/**
+ * @brief Ethernet virtual modules initialization
+ *
+ * @param[out] dev_out device information of the ethernet interface
+ * @return
+ *          - esp_eth_handle_t if init succeeded
+ *          - NULL if init failed
+ */
+static esp_eth_handle_t eth_init_virt(eth_device *dev_out)
+{
+    esp_eth_handle_t ret = NULL;
+
+    if (dev_out == NULL) {
+        ESP_LOGE(TAG, "eth_device NULL");
+        return ret;
+    }
+
+    // Init common MAC and PHY configs to default
+    eth_mac_config_t mac_config = ETH_MAC_DEFAULT_CONFIG();
+    mac_config.rx_task_stack_size = CONFIG_ETHERNET_RX_TASK_STACK_SIZE;
+    eth_phy_config_t phy_config = ETH_PHY_DEFAULT_CONFIG();
+
+    // Update PHY config based on driver specific configuration
+#if CONFIG_ETHERNET_USE_OPENETH
+    // Init based on
+    // https://github.com/espressif/esp-idf/blob/d7715b96b26556b864bf7be4f621ddd99233b0ed/examples/common_components/protocol_examples_common/eth_connect.c#L147
+    phy_config.autonego_timeout_ms = 100;
+    dev_out->mac = esp_eth_mac_new_openeth(&mac_config);
+    dev_out->phy = esp_eth_phy_new_dp83848(&phy_config);
+    strcpy(dev_out->dev_info.name, "OpenEth");
+#else
+#error "Virtual Ethernet enabled in sdkconfig but no driver selected!"
+#endif
+    // Init Ethernet driver to default and install it
+    esp_eth_handle_t eth_handle = NULL;
+    esp_eth_config_t eth_config_virt = ETH_DEFAULT_CONFIG(dev_out->mac, dev_out->phy);
+    ESP_GOTO_ON_FALSE(esp_eth_driver_install(&eth_config_virt, &eth_handle) == ESP_OK, NULL, err, TAG, "virtual Ethernet driver install failed");
+
+    return eth_handle;
+err:
+    if (eth_handle != NULL) {
+        esp_eth_driver_uninstall(eth_handle);
+    }
+    if (dev_out->mac != NULL) {
+        dev_out->mac->del(dev_out->mac);
+    }
+    if (dev_out->phy != NULL) {
+        dev_out->phy->del(dev_out->phy);
+    }
+    return ret;
+}
+#endif // CONFIG_ETHERNET_VIRT_SUPPORT
+
+
 esp_err_t ethernet_init_all(esp_eth_handle_t *eth_handles_out[], uint8_t *eth_cnt_out)
 {
     esp_err_t ret = ESP_OK;
@@ -342,10 +404,10 @@ esp_err_t ethernet_init_all(esp_eth_handle_t *eth_handles_out[], uint8_t *eth_cn
         called = 1;
     }
 
-#if CONFIG_ETHERNET_INTERNAL_SUPPORT || CONFIG_ETHERNET_SPI_SUPPORT
+#if CONFIG_ETHERNET_INTERNAL_SUPPORT || CONFIG_ETHERNET_SPI_SUPPORT || CONFIG_ETHERNET_VIRT_SUPPORT
     ESP_GOTO_ON_FALSE(eth_handles_out != NULL && eth_cnt_out != NULL, ESP_ERR_INVALID_ARG,
                       err, TAG, "invalid arguments: initialized handles array or number of interfaces");
-    eth_handles = calloc(SPI_ETHERNETS_NUM + INTERNAL_ETHERNETS_NUM, sizeof(esp_eth_handle_t));
+    eth_handles = calloc(SPI_ETHERNETS_NUM + INTERNAL_ETHERNETS_NUM + VIRT_ETHERNETS_NUM, sizeof(esp_eth_handle_t));
     ESP_GOTO_ON_FALSE(eth_handles != NULL, ESP_ERR_NO_MEM, err, TAG, "no memory");
 
 #if CONFIG_ETHERNET_INTERNAL_SUPPORT
@@ -408,7 +470,7 @@ esp_err_t ethernet_init_all(esp_eth_handle_t *eth_handles_out[], uint8_t *eth_cn
 #endif
 
 #if CONFIG_ETHERNET_SPI_NUMBER > 2
-#error Maximum number of supported SPI Ethernet devices is currently limited to 2 by this example.
+#error Maximum number of supported SPI Ethernet devices is currently limited to 2
 #endif
 
     for (int i = 0; i < CONFIG_ETHERNET_SPI_NUMBER; i++) {
@@ -423,6 +485,15 @@ esp_err_t ethernet_init_all(esp_eth_handle_t *eth_handles_out[], uint8_t *eth_cn
     }
 #endif // CONFIG_ETHERNET_SPI_SUPPORT
 
+#if CONFIG_ETHERNET_VIRT_SUPPORT
+    eth_handles[eth_cnt_g] = eth_init_virt(&eth_instance_g[eth_cnt_g]);
+    ESP_GOTO_ON_FALSE(eth_handles[eth_cnt_g], ESP_FAIL, err, TAG, "virtual Ethernet init failed");
+    eth_instance_g[eth_cnt_g].state = DEV_STATE_INITIALIZED;
+    eth_instance_g[eth_cnt_g].eth_handle = eth_handles[eth_cnt_g];
+    eth_instance_g[eth_cnt_g].dev_info.type = ETH_DEV_TYPE_VIRT;
+    eth_cnt_g++;
+#endif // CONFIG_ETHERNET_VIRT_SUPPORT
+
 #else
     ESP_LOGD(TAG, "no Ethernet device selected to init");
 #endif // CONFIG_ETHERNET_INTERNAL_SUPPORT || CONFIG_ETHERNET_SPI_SUPPORT
@@ -430,7 +501,7 @@ esp_err_t ethernet_init_all(esp_eth_handle_t *eth_handles_out[], uint8_t *eth_cn
     *eth_cnt_out = eth_cnt_g;
 
     return ret;
-#if CONFIG_ETHERNET_INTERNAL_SUPPORT || CONFIG_ETHERNET_SPI_SUPPORT
+#if CONFIG_ETHERNET_INTERNAL_SUPPORT || CONFIG_ETHERNET_SPI_SUPPORT || CONFIG_ETHERNET_VIRT_SUPPORT
 err:
     ethernet_deinit_all(eth_handles);
     return ret;
